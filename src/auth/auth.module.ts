@@ -3,18 +3,27 @@ import { AuthController } from './auth.controller';
 import { GoogleStrategy } from './utils/google.strategy';
 import { AuthService } from './auth.service';
 import { PrismaService } from 'src/db/prisma.service';
-import { SessionSerializer } from './utils/serializer';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { JwtStrategy } from './utils/jwt.strategy';
 
 @Module({
+  imports: [
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get('JWT_SECRET'),
+      }),
+      inject: [ConfigService],
+    }),
+  ],
   controllers: [AuthController],
   providers: [
     GoogleStrategy,
     PrismaService,
-    SessionSerializer,
-    {
-      provide: 'AUTH_SERVICE',
-      useClass: AuthService,
-    },
+    AuthService,
+    ConfigService,
+    JwtStrategy,
   ],
 })
 export class AuthModule {}

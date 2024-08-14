@@ -1,4 +1,20 @@
-export type UserDetails = {
+export interface GoogleUser {
   email: string;
-  displayName: string;
-};
+  firstName: string;
+  lastName: string;
+  picture: string;
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface UserFromJwt {
+  id: string;
+  sub: {
+    email: string;
+  };
+}
+
+export enum StrategiesEnum {
+  Google = 'google',
+  JWT = 'jwt',
+}

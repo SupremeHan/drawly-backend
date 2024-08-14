@@ -1,39 +1,111 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { User } from '@prisma/client';
 
 import { PrismaService } from 'src/db/prisma.service';
-import { UserDetails } from 'src/utils/types';
+import { GoogleUser } from 'src/utils/types';
+import {
+  COOKIE_NAMES,
+  expiresTimeTokenMilliseconds,
+} from './constants/auth.constants';
+import { CookieOptions, Response } from 'express';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private configService: ConfigService,
+    private jwtService: JwtService,
+    private prisma: PrismaService,
+  ) {}
 
-  async validateUser(details: UserDetails) {
-    console.log('Auth service');
-    console.log(details);
+  async signInWithGoogle(
+    user: GoogleUser,
+    res: Response,
+  ): Promise<{ encodedUser: string }> {
+    if (!user) throw new BadRequestException('Unauthenticated');
 
-    const { email, displayName } = details;
-    let user = await this.prisma.user.findUnique({
+    const existingUser = await this.findUserByEmail(user.email);
+
+    if (!existingUser) return this.registerGoogleUser(res, user);
+
+    const encodedUser = this.encodeUserDataAsJwt(existingUser);
+
+    this.setJwtTokenToCookies(res, existingUser);
+
+    return {
+      encodedUser,
+    };
+  }
+
+  private async findUserByEmail(email: string) {
+    const user = await this.prisma.user.findFirst({
       where: { email },
     });
-    if (!user) {
-      console.log('User not found, creating...');
-      user = await this.prisma.user.create({
-        data: { email, displayName },
-      });
-    }
 
+    if (!user) return null;
     return user;
   }
 
-  async findUser(id: number) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
+  private async registerGoogleUser(res: Response, user: GoogleUser) {
+    try {
+      const fullName =
+        !user.firstName && !user.lastName
+          ? user.email
+          : `${user.lastName || ''} ${user.firstName || ''}`.trim();
 
-    if (!user) {
-      console.log('Could not find the user');
+      const newUser = await this.prisma.user.create({
+        data: {
+          email: user.email,
+          fullName,
+          picture: user.picture,
+        },
+      });
+
+      const encodedUser = this.encodeUserDataAsJwt(newUser);
+
+      this.setJwtTokenToCookies(res, newUser);
+
+      return {
+        encodedUser,
+      };
+    } catch (error) {
+      Logger.error(error);
+      throw new InternalServerErrorException();
     }
+  }
 
-    return user;
+  private encodeUserDataAsJwt(user: User) {
+    // even though we did not define a password on our user's schema
+    // we extract it from the user in case we will have it on the future
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, ...userData } = user;
+
+    return this.jwtService.sign(userData);
+  }
+
+  setJwtTokenToCookies(res: Response, user: User) {
+    const expirationDateInMilliseconds =
+      new Date().getTime() + expiresTimeTokenMilliseconds;
+    const cookieOptions: CookieOptions = {
+      httpOnly: true, // this ensures that the cookie cannot be accessed through JavaScript!
+      expires: new Date(expirationDateInMilliseconds),
+    };
+
+    res.cookie(
+      COOKIE_NAMES.JWT,
+      this.jwtService.sign({
+        id: user.id,
+        sub: {
+          email: user.email,
+        },
+      }),
+      cookieOptions,
+    );
   }
 }

@@ -1,18 +1,25 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { GoogleAuthGuard } from './utils/guards';
+import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common';
+import { GoogleAuthGuard } from './utils/google-oauth.guard';
+import { Response as ExpressResponse } from 'express';
+import { AuthService } from './auth.service';
 
 @Controller('auth')
 export class AuthController {
-  @Get('google/login')
+  constructor(private readonly authService: AuthService) {}
   @UseGuards(GoogleAuthGuard)
-  handleLogin() {
-    return { msg: 'google auth' };
-  }
+  @Get('google')
+  async googleAuth() {}
 
   // api/google/redirect
-  @Get('google/redirect')
   @UseGuards(GoogleAuthGuard)
-  handleRedirect() {
-    return { msg: 'OK' };
+  @Get('google-auth-redirect')
+  async googleAuthRedirect(@Req() req, @Res() res: ExpressResponse) {
+    const { encodedUser } = await this.authService.signInWithGoogle(
+      req.user,
+      res,
+    );
+    return res.redirect(
+      `${process.env.GOOGLE_REDIRECT_URL_CLIENT_REACT}?jwtUser=${encodedUser}`,
+    );
   }
 }
